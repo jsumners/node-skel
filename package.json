@@ -28,6 +28,10 @@
     "url": "https://github.com/jsumners/node-skel/issues"
   },
   "homepage": "https://github.com/jsumners/node-skel#readme",
+  "files": [
+    "files/.editorconfig",
+    "files/.gitignore"
+  ],
   "devDependencies": {
     "pre-commit": "^1.2.2",
     "standard": "^10.0.2"
