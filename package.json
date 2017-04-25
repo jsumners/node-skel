@@ -29,8 +29,8 @@
   },
   "homepage": "https://github.com/jsumners/node-skel#readme",
   "files": [
-    "files/.editorconfig",
-    "files/.gitignore"
+    "files/editorconfig",
+    "files/gitignore"
   ],
   "devDependencies": {
     "pre-commit": "^1.2.2",
