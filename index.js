@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 'use strict'
 
-const {exec} = require('child_process')
+const {spawn} = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const {which} = require('@cedx/which')
+const NpmApi = require('npm-api')
+const npm = new NpmApi()
 const files = {
   editorconfig: { src: path.join(__dirname, 'files', 'editorconfig'), name: '.editorconfig' },
   gitignore: { src: path.join(__dirname, 'files', 'gitignore'), name: '.gitignore' },
@@ -63,28 +65,27 @@ async function run (options) {
   }
 
   if (options.all || options.scripts) {
-    const manager = await getPkgManager()
-    // Using fork doesn't work because the arguments don't get recognized correctly.
-    console.log('Installing packages')
-    const child = exec(
-      manager + ' install --save-dev standard snazzy tap pre-commit'
-    )
-    child.on('exit', (code, signal) => {
-      if (code !== 0) {
-        console.error('Error installing packages. Got code: %s', code)
-        process.exit(code)
+    writeScriptsAndVersions(async (err) => {
+      if (err) {
+        console.error('Could not write package.json: %s', err.message)
+        process.exit(1)
       }
-
-      writeScripts((err) => {
-        if (err) {
-          console.error('Could not write package.json: %s', err.message)
-          process.exit(1)
+      const manager = await getPkgManager()
+      console.log('Installing packages')
+      const child = spawn(manager, ['install'], {cwd})
+      child.on('close', (code, signal) => {
+        if (code !== 0) {
+          console.error('Error installing packages. Got code: %s', code)
+          process.exit(code)
         }
+
+        console.log(require(require.resolve(cwd + '/package.json')))
+
         deployFiles()
       })
+      child.stdout.pipe(process.stdout)
+      child.stderr.pipe(process.stderr)
     })
-    child.stdout.pipe(process.stdout)
-    child.stderr.pipe(process.stderr)
   } else {
     deployFiles()
   }
@@ -99,7 +100,7 @@ async function run (options) {
   }
 }
 
-function writeScripts (cb) {
+async function writeScriptsAndVersions (cb) {
   console.log('Adding scripts')
   const cwd = process.cwd()
   const packageFile = path.join(cwd, 'package.json')
@@ -111,16 +112,33 @@ function writeScripts (cb) {
     'test-ci': `tap --cov --coverage-report=text 'test/**/*.test.js'`
   }
   pkg.precommit = ['lint', 'test']
-  const deps = pkg.dependencies
-  const devDeps = pkg.devDependencies
+  const deps = Object.create(pkg.dependencies || {})
+  const devDeps = Object.create(pkg.devDependencies || {})
   delete pkg.dependencies
   delete pkg.devDependencies
-  pkg.devDependencies = devDeps
-  pkg.dependencies = deps
-  var data = JSON.stringify(pkg, null, 2) + '\n'
-  fs.writeFile(packageFile, data, 'utf8', function (err) {
-    return cb(err)
-  })
+
+  try {
+    const standard = await npm.repo('standard').package()
+    const snazzy = await npm.repo('snazzy').package()
+    const tap = await npm.repo('tap').package()
+    const preCommit = await npm.repo('pre-commit').package()
+
+    devDeps['pre-commit'] = `^${preCommit.version}`
+    devDeps.snazzy = `^${snazzy.version}`
+    devDeps.standard = `^${standard.version}`
+    devDeps.tap = `^${tap.version}`
+
+    pkg.dependencies = deps
+    pkg.devDependencies = devDeps
+
+    var data = JSON.stringify(pkg, null, 2) + '\n'
+    fs.writeFile(packageFile, data, 'utf8', function (err) {
+      return cb(err)
+    })
+  } catch (e) {
+    console.error('Could not get package versions: %s', e.message)
+    process.exit(1)
+  }
 }
 
 function deployAllFiles () {
